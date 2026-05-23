@@ -215,3 +215,5 @@ __pycache__/
 
 # --- VS Code (Optional but recommended) ---
 .vscode/
+data/Shapefile/sh_statbel_statistical_sectors_3812_20240101.shp
+data/Shapefile/sh_statbel_statistical_sectors_3812_20240101.dbf
