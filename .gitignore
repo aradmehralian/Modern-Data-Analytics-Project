@@ -217,3 +217,5 @@ __pycache__/
 .vscode/
 data/Shapefile/sh_statbel_statistical_sectors_3812_20240101.shp
 data/Shapefile/sh_statbel_statistical_sectors_3812_20240101.dbf
+data/Shapefile/sh_statbel_statistical_sectors_3812_20240101.shp
+data/Shapefile/sh_statbel_statistical_sectors_3812_20240101.dbf
