@@ -336,9 +336,14 @@ if st.session_state.selected_muni is not None:
     st.markdown("## Accident Profile vs. Flanders Average", text_alignment="center")
 
     global_means = (
-        pd.to_numeric(merged_gdf[TYPE_COLS].mean(numeric_only=True)).fillna(0).tolist()
+        pd.to_numeric(merged_gdf[TYPE_COLS].mean(numeric_only=True))
+        .round(decimals=0)
+        .fillna(0)
+        .tolist()
     )
-    muni_counts = pd.to_numeric(row[TYPE_COLS], errors="coerce").fillna(0).tolist()
+    muni_counts = (
+        pd.to_numeric(row[TYPE_COLS], errors="coerce").round(0).fillna(0).tolist()
+    )
 
     profile_df = pd.DataFrame(
         {
