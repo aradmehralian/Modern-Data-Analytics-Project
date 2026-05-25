@@ -33,7 +33,7 @@ pip install -r requirements.txt
 ```
  
  
-## 📂 Data Requirements
+## Data Requirements
  
 | File type | Location | Notes |
 |-----------|----------|-------|
