@@ -1,0 +1,17 @@
+pandas
+branca
+numpy
+matplotlib
+seaborn
+scikit-learn
+xgboost
+lightgbm
+scipy
+meteostat
+holidays
+requests
+polars
+folium
+pyproj
+squarify
+umap-learn
