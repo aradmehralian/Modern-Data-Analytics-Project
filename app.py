@@ -1,17 +1,19 @@
+from utils import (
+    load_data,
+    load_raw_accidents,
+    load_sites,
+    load_all_base64_images,
+    build_accident_index,
+    slim_gdf,
+)
+
 import streamlit as st
-import geopandas as gpd
 import pandas as pd
 import folium
 from folium.plugins import HeatMap
 from streamlit_folium import st_folium
-import base64
-import os
 import plotly.express as px
 from pathlib import Path
-
-BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "data"
-IMAGES_DIR = BASE_DIR / "images"
 
 st.set_page_config(page_title="MDA Dashboard", layout="wide")
 
@@ -24,97 +26,6 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-
-# data loading functions
-@st.cache_data
-def load_data():
-    gdf = gpd.read_file(
-        DATA_DIR / "Shapefile" / "sh_statbel_statistical_sectors_3812_20240101.shp"
-    )
-    gdf = gdf[gdf["T_REGIO_NL"] == "Vlaams Gewest"].copy()
-    gdf = gdf.dissolve(by="T_MUN_NL", as_index=False)
-    gdf = gdf.rename(columns={"T_MUN_NL": "NAAM"})
-
-    for col in gdf.select_dtypes(
-        include=["datetime64", "datetime", "datetimetz"]
-    ).columns:
-        gdf[col] = gdf[col].astype(str)
-
-    centroids = gdf.centroid
-    centroids_wgs = centroids.to_crs(epsg=4326)
-
-    gdf = gdf.to_crs(epsg=4326)
-    gdf["lon"] = centroids_wgs.x
-    gdf["lat"] = centroids_wgs.y
-
-    # simplifies by removing the nodes that aren't really needed
-    gdf["geometry"] = gdf["geometry"].simplify(tolerance=0.001, preserve_topology=True)
-
-    df_tiers = pd.read_csv(DATA_DIR / "tiers.csv")
-    df_results = pd.read_csv(DATA_DIR / "final_results.csv")
-    df_age = pd.read_csv(DATA_DIR / "flanders_age_by_municipality_2024.csv")
-
-    df_tiers.columns = df_tiers.columns.str.strip()
-    df_results.columns = df_results.columns.str.strip()
-    df_age.columns = df_age.columns.str.strip()
-
-    gdf["join_key"] = gdf["NAAM"].astype(str).str.strip().str.lower()
-    df_tiers["join_key"] = df_tiers["gemeente"].astype(str).str.strip().str.lower()
-    df_results["join_key"] = df_results["gemeente"].astype(str).str.strip().str.lower()
-    df_age["join_key"] = df_age["Municipality"].astype(str).str.strip().str.lower()
-
-    df_merged_csvs = df_tiers.merge(
-        df_results, on="join_key", how="left", suffixes=("_old", "")
-    )
-    df_merged_csvs = df_merged_csvs.merge(
-        df_age, on="join_key", how="left", suffixes=("", "_age")
-    )
-    df_merged_csvs = df_merged_csvs.loc[:, ~df_merged_csvs.columns.str.endswith("_old")]
-
-    merged_gdf = gdf.merge(df_merged_csvs, on="join_key", how="left")
-    return merged_gdf
-
-
-@st.cache_data
-def load_raw_accidents():
-    return pd.read_csv(DATA_DIR / "flanders_2024_accidents_wgs84.csv", low_memory=False)
-
-
-@st.cache_data
-def load_sites():
-    df = pd.read_csv(DATA_DIR / "sites.csv")
-    df = df.dropna(subset=["lat", "long"])
-    # pre-calculate the join key so we can easily filter per municipality later
-    if "gemeente" in df.columns:
-        df["join_key"] = df["gemeente"].astype(str).str.strip().str.lower()
-    return df
-
-
-@st.cache_data
-def load_all_base64_images(images_dir: Path = IMAGES_DIR) -> dict:
-    result = {}
-    if not images_dir.is_dir():
-        return result
-    for fname in images_dir.iterdir():
-        if fname.suffix.lower() == ".png":
-            b64 = base64.b64encode(fname.read_bytes()).decode("utf-8")
-            result[fname.stem] = f"data:image/png;base64,{b64}"
-    return result
-
-
-@st.cache_data
-def build_accident_index(raw_accidents: pd.DataFrame) -> dict:
-    df = raw_accidents.copy()
-    df["join_key"] = df["TX_MUNTY_COLLISION_NL"].astype(str).str.strip().str.lower()
-    df["LAT"] = pd.to_numeric(df["LAT"], errors="coerce")
-    df["LON"] = pd.to_numeric(df["LON"], errors="coerce")
-    df = df.dropna(subset=["LAT", "LON"])
-
-    index: dict = {}
-    for key, group in df.groupby("join_key"):
-        index[key] = group[["LAT", "LON"]].values.tolist()
-    return index
 
 
 TOOLTIP_FIELDS = [
@@ -131,11 +42,21 @@ TYPE_COLS = [
     "prev_year_slick_accidents",
     "prev_year_carconflict_accidents",
     "prev_year_int_accidents",
+    "prev_year_school_accidents",
+    "prev_year_dark_count",
 ]
 
-TYPE_LABELS = ["Slick", "Car Conflict", "Intersection"]
+TYPE_LABELS = ["Slick", "Car Conflict", "Intersection", "School Zone", "Low Light"]
 
 TIER_COLORS = {"Red": "#ef4444", "Yellow": "#facc15", "Green": "#22c55e"}
+
+KEY_TO_LABEL = {
+    "slick": "Slick Road",
+    "car_conflict": "Car Conflict",
+    "intersection": "Intersection",
+    "school_accidents": "School Zone",
+    "dark": "Low Light",
+}
 
 MAP_COLS = [
     "geometry",
@@ -149,15 +70,6 @@ MAP_COLS = [
 ]
 
 FLANDERS_BOUNDS = [[50.67, 2.53], [51.60, 5.92]]
-
-
-@st.cache_data
-def slim_gdf(merged_gdf):
-    """Return a geometry-only GDF with the minimum columns needed for maps."""
-    keep = list(set(TOOLTIP_FIELDS + ["geometry"]))
-    keep = [c for c in keep if c in merged_gdf.columns]
-    return merged_gdf[keep].copy()
-
 
 with st.spinner():
     merged_gdf = load_data()
@@ -383,7 +295,7 @@ if st.session_state.selected_muni is not None:
             title=None,
         ),
         margin=dict(t=50, b=0, l=0, r=30),
-        height=250,
+        height=400,
         yaxis=dict(autorange="reversed"),
     )
     fig_types.update_xaxes(showticklabels=False, showgrid=False)
@@ -421,6 +333,46 @@ else:
         if searched_muni:
             st.session_state.selected_muni = searched_muni
             st.rerun()
+
+        if b64_images:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("### Legend")
+            st.markdown(
+                "<p style='color: #a1a1aa; font-size: 14px;'>Most Important accident type per municipality.</p>",
+                unsafe_allow_html=True,
+            )
+
+            legend_rows = "".join(f"""
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px;">
+                    <div style="
+                        background-color: rgba(140, 140, 140, 0.7);
+                        border-radius: 8px;
+                        width: 36px; height: 36px;
+                        display: flex; align-items: center; justify-content: center;
+                        flex-shrink: 0;
+                    ">
+                        <img src="{data_uri}" width="22" height="22"
+                             style="object-fit: contain;">
+                    </div>
+                    <span style="font-size: 14px; color: var(--text-color);">
+                        {KEY_TO_LABEL.get(key, key.replace('_', ' ').title())}
+                    </span>
+                </div>
+                """ for key, data_uri in sorted(b64_images.items()))
+
+            st.markdown(
+                f"""
+                <div style="
+                    background-color: var(--secondary-background-color);
+                    border: 1px solid rgba(128,128,128,0.2);
+                    border-radius: 12px;
+                    padding: 14px 16px;
+                ">
+                    {legend_rows}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     with map_col:
         m = folium.Map(
